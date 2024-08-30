@@ -1,7 +1,9 @@
 import tkinter as tk
+import threading
+import queue
 import RPi.GPIO as GPIO
 from tkinter import *
-from time import strftime
+from time import strftime, sleep
 import max6675
 from bpg400.bpg400 import BGP400_RS232
 from labdevices.pressuregauge import PressureGaugeUnit
@@ -41,6 +43,13 @@ GPIO.output(in15, True)
 GPIO.output(in19, True)
 GPIO.output(in21, True)
 
+def read_pressure(q):
+    with BGP400_RS232("/dev/serial0") as pg:
+        while True:
+            pressure = pg.get_pressure(PressureGaugeUnit.MBAR)
+            q.put(pressure)
+            sleep(1)  # Adjust the sleep time as needed
+
 class MainWindow(tk.Tk):
     def __init__(self, *args, **kwargs):
         tk.Tk.__init__(self, *args, **kwargs)
@@ -58,6 +67,19 @@ class MainWindow(tk.Tk):
         pp=tk.Frame(frame1)
         pp.pack(pady=2)
 
+        def start_pressure_thread(self):
+            pressure_thread = threading.Thread(target=read_pressure, args=(self.q,))
+            pressure_thread.daemon = True
+            pressure_thread.start()
+
+        def update_pressure(self):
+            try:
+                pressure = self.q.get_nowait()
+                self.vpp.config(text=round(pressure))
+            except queue.Empty:
+                pass
+            self.after(1000, self.update_pressure)
+        
         def zegar():
             string = strftime('%H:%M:%S')
             lbl.config(text=string)
@@ -90,37 +112,14 @@ class MainWindow(tk.Tk):
         
         ltppc = Label(pp, font=('arial', 40, 'bold'), width=2, text='\u00b0'"C")
         ltppc.grid(row=2, column=1, sticky="W", padx=10)        
-        pg=BGP400_RS232("/dev/serial0")
-        #Vacuum indicator
-        def Inficon(pg):
-            #try:
-                with BGP400_RS232("/dev/serial0") as pg:
-                    #while True:
-                        pressure = pg.get_pressure(PressureGaugeUnit.MBAR)
-                        print(pressure)
-                        if pressure is not None:
-                            #print(round(pressure))
-                            vpp.config(text=round(pressure))
-                            vpp.after(1000,Inficon)
-                            vpp=Label(pp, font=('arial', 40, 'bold'), width=6)
-                            vpp.grid(row=4, column=0, sticky="W", padx=10)
-                                                           
-                            #ltpv = Label(pp, font=('arial', 40, 'bold'), width=6, text="mBAR")
-                            #ltpv.grid(row=4, column=1, sticky="W", padx=10)
-                                                    
-                        else:
-                            #print(pressure)
-                            ltpb=Label(pp, text = str(pressure), font=('arial', 40, 'bold'), width=6)
-                            ltpb.grid(row=4, column=0, sticky="W", padx=10)
-                            ltpb.after(1000, Inficon)
-            #except KeyboardInterrupt:
-                #print ("measurement stopped by user")
-                           
-        #Vacuum pressure label
+        
+        self.vpp = Label(pp, font=('arial', 40, 'bold'), width=6)
+        self.vpp.grid(row=4, column=0, sticky="W", padx=10)
+        
         lpv = Label(pp, text="Próżnia")
         lpv.grid(row=3, column=0, sticky="W", padx=10)
-        Inficon()
-               
+
+        self.update_pressure()
 
         frame2 = tk.LabelFrame(self, text="Właczanie modułów")
         frame2.place(rely=0.05, relx=0.42, height=400, width=550)
